@@ -1,1 +1,14 @@
+# virtual enviroment
 venv/
+
+# python cache
+__pycache__/
+*.pyc
+*.pyo
+
+
+# my personal api keys
+keys/
+
+# raw data (there's a lot of jsons). not interesting
+data/raw/
