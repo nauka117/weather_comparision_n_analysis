@@ -8,7 +8,7 @@ __pycache__/
 
 
 # my personal api keys
-keys/
+.env
 
 # raw data (there's a lot of jsons). not interesting
 data/raw/

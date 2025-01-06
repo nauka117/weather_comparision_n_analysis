@@ -1,8 +1,33 @@
-import requests
-from datetime import datetime
+import asyncio
+import aiohttp
+
+import os
+from pydantic import Field
+from pydantic_settings import BaseSettings
+
+from datetime import datetime, timedelta
+
 import json
 
-def get_city_coordinates(city_name:str) -> tuple[str]:
+
+class Settings(BaseSettings):
+    """
+    Class for reading protected data from .env (like api keys, agent info, etc.)
+    """
+
+    OWM_API_KEY: str = Field(alias="OWM_api_key")
+    AGENT_DATA: str = Field(alias="user_agent")
+
+    class Config:
+        env_file = os.path.expanduser(".env")
+        env_file_encoding = "utf-8"
+        extra = "allow"
+
+
+settings = Settings()
+
+
+async def get_city_coordinates(session:aiohttp.ClientSession, city_name:str) -> tuple[str]:
     """Get city coordinates with Nominatim API"""
     url = "https://nominatim.openstreetmap.org/search"
     params = {
@@ -11,63 +36,73 @@ def get_city_coordinates(city_name:str) -> tuple[str]:
         "addressdetails": 0,
         "limit": 1  # limit number of results. We need only 1
     }
-    
     headers = {
-        "User-Agent": AGENT_DATA  # Remember, here is my data from .gitignore
+        "User-Agent": settings.AGENT_DATA
     }
     
-    response = requests.get(url, params=params, headers=headers)
-    
-    if response.status_code == 200:
-        results = response.json()
-        if results:
-            return results[0]["lat"], results[0]["lon"]  # Return the first result
+    async with session.get(url=url, params=params, headers=headers) as response:
+
+        if response.status == 200:
+            results = await response.json()
+            if results:
+                return results[0]["lat"], results[0]["lon"]  # Return the first result
+            else:
+                return None  # No results found
         else:
-            return None  # No results found
-    else:
-        print(f"Error: {response.status_code}")
-        return None
+            print(f"Error: {response.status_code}")
+            return None
 
-def get_daily_weather(city_name:str, date_request:str):
+async def get_daily_weather(session:aiohttp.ClientSession, city_name:str, date_request:str):
 
-    coordinates = get_city_coordinates(city_name)
+    coordinates = await get_city_coordinates(session, city_name)
+    
     date_start = int(datetime.strptime(f"{date_request} 00:00", "%d.%m.%Y %H:%M").timestamp())
     date_end = int(datetime.strptime(f"{date_request} 23:00", "%d.%m.%Y %H:%M").timestamp())
+    
     url = "https://history.openweathermap.org/data/2.5/history/city"
     params = {
         "lat":      float(coordinates[0]),
         "lon":      float(coordinates[1]),
         "type":     "hour",
-        "appid":    API_KEY,
+        "appid":    settings.OWM_API_KEY,
         "start":    date_start,
         "end":      date_end
     }
 
-    response = requests.get(url, params=params)
-
-    if response.status_code == 200:
-        return response.json()
-    else:
-        print(f"ERROR: {response.status_code}, {response.text}")
-        return None
+    async with session.get(url=url, params=params) as response:
+        if response.status == 200:
+            return await response.json()
+        else:
+            print(f"ERROR: {response.status_code}, {response.text}")
+            return None
 
 def add_dw_to_raw(daily_weather:dict, date_filename:str):
     with open(f'data/raw/{date_filename}.json', 'w', encoding='utf-8') as json_file:
         json.dump(daily_weather, json_file, ensure_ascii=False, indent=4)
     print(f"Data for {date_filename} succesfully written to json file")
 
-#------ I HAVE keys/ DIRECTORY IN .gitignore
-#------ WHERE I STORE MY OWN API KEYS AND AGENT DATA
 
-with open("keys/openweathermap.txt") as key_file:
-    API_KEY = key_file.read()
+async def main():
+    
+    city_name = "Rostov-on-Don"
 
-with open("keys/user-agent-osm.txt") as agent_file:
-    # format: YourAppName/1.0 (your.email@example.com)
-    AGENT_DATA = agent_file.read()
+    # send querries for dates from 11.01.24 to 14.01.2024
+    start_date = datetime(2024, 1, 11)
+    end_date = datetime(2024, 1, 14)
+
+    async with aiohttp.ClientSession() as session:
+
+        current_date = start_date
+
+        while current_date <= end_date:
+            date_format = current_date.strftime("%d.%m.%Y")  #  format date
+            current_date += timedelta(days=1)
+            
+            result = await get_daily_weather(session, city_name, date_format)
+            add_dw_to_raw(result, date_format)
+            
+            await asyncio.sleep(1)
 
 
-city_name = "Rostov-on-Don"
-result = get_daily_weather(city_name, "10.01.2024")
-
-add_dw_to_raw(result, "10.01.2024")
+if __name__ == "__main__":
+    asyncio.run(main())
