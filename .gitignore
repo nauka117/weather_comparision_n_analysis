@@ -1,11 +1,15 @@
 # virtual enviroment
 .venv/
 
+# vscode settings
+.vscode/
 
 # python cache
 __pycache__/
 *.pyc
 *.pyo
+
+.pytest_cache/
 
 
 # my personal api keys
